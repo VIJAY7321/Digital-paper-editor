@@ -1,0 +1,626 @@
+<!DOCTYPE html> 
+<html lang="en"> 
+<head> 
+    <meta charset="UTF-8"> 
+    <meta name="viewport" content="width=device-width, 
+initial-scale=1.0"> 
+    <title>Digital Paper Editor</title> 
+    <script src="https://cdn.tailwindcss.com"></script> 
+    <script 
+src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.
+js"></script> 
+    <script 
+src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.brow
+ser.min.js"></script> 
+    <script 
+src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.
+js"></script> 
+    <link 
+href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&
+display=swap" rel="stylesheet"> 
+    <style> 
+        body { 
+            font-family: 'Inter', sans-serif; 
+            touch-action: none; /* Prevents browser gestures like 
+pull-to-refresh */ 
+        } 
+        .editor-container { 
+            width: 210mm; /* A4 width */ 
+            height: 297mm; /* A4 height */ 
+            margin: 2rem auto; 
+            background-color: white; 
+            box-shadow: 0 0 20px rgba(0,0,0,0.1); 
+            position: relative; 
+            overflow: hidden; 
+            cursor: crosshair; 
+        } 
+        #editor-canvas { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+        } 
+        .text-element { 
+            position: absolute; 
+            cursor: move; 
+            padding: 2px; 
+            border: 1px dashed transparent; 
+            min-width: 20px; 
+            min-height: 20px; 
+            line-height: 1.2; 
+        } 
+        .text-element:hover, .text-element.selected { 
+            border-color: #3b82f6; 
+        } 
+        .text-element:focus { 
+            outline: none; 
+            border-color: #1d4ed8; 
+            box-shadow: 0 0 5px rgba(59, 130, 246, 0.5); 
+        } 
+        .toolbar-icon { 
+            transition: all 0.2s ease-in-out; 
+        } 
+        .toolbar-icon:hover { 
+            transform: scale(1.1); 
+            background-color: #e5e7eb; 
+        } 
+        .tooltip { 
+            position: relative; 
+            display: inline-block; 
+        } 
+        .tooltip .tooltiptext { 
+            visibility: hidden; 
+            width: 120px; 
+            background-color: #555; 
+            color: #fff; 
+            text-align: center; 
+            border-radius: 6px; 
+            padding: 5px 0; 
+            position: absolute; 
+            z-index: 1; 
+            bottom: 125%; 
+            left: 50%; 
+            margin-left: -60px; 
+            opacity: 0; 
+            transition: opacity 0.3s; 
+        } 
+        .tooltip:hover .tooltiptext { 
+            visibility: visible; 
+            opacity: 1; 
+        } 
+    </style> 
+</head> 
+<body class="bg-gray-100"> 
+ 
+    <div class="p-4 bg-white shadow-md sticky top-0 z-10"> 
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center 
+justify-center gap-4"> 
+            <h1 class="text-xl font-bold text-gray-700 mr-6">Digital 
+Paper Editor</h1> 
+             
+            <div class="flex items-center gap-3 border-r pr-4"> 
+                <div class="tooltip"> 
+                    <button id="undo-btn" class="p-2 rounded-full 
+bg-gray-200 text-gray-600 toolbar-icon"> 
+                        <svg xmlns="http://www.w3.org/2000/svg" 
+width="20" height="20" viewBox="0 0 24 24" fill="none" 
+stroke="currentColor" stroke-width="2" stroke-linecap="round" 
+stroke-linejoin="round"><path d="M21 13v4a2 2 0 0 1-2 2H5a2 2 0 0 
+1-2-2V7a2 2 0 0 1 2-2h11c.956 0 1.83.472 2.37.994"/></svg> 
+                    </button> 
+                    <span class="tooltiptext">Undo</span> 
+                </div> 
+                <div class="tooltip"> 
+                    <button id="redo-btn" class="p-2 rounded-full 
+bg-gray-200 text-gray-600 toolbar-icon"> 
+                       <svg xmlns="http://www.w3.org/2000/svg" 
+width="20" height="20" viewBox="0 0 24 24" fill="none" 
+stroke="currentColor" stroke-width="2" stroke-linecap="round" 
+stroke-linejoin="round"><path d="M3 13v4a2 2 0 0 0 2 2h14a2 2 0 0 0 
+2-2V7a2 2 0 0 0-2-2H8.63c-.956 0-1.83.472-2.37.994"/></svg> 
+                    </button> 
+                    <span class="tooltiptext">Redo</span> 
+                </div> 
+            </div> 
+ 
+            <div class="flex items-center gap-3 border-r pr-4"> 
+                <label for="line-weight" class="text-sm font-medium 
+text-gray-600">Weight:</label> 
+                <input type="range" id="line-weight" min="1" max="20" 
+value="2" class="w-24"> 
+                <label for="line-color" class="text-sm font-medium 
+text-gray-600">Color:</label> 
+                <input type="color" id="line-color" value="#000000" 
+class="w-8 h-8"> 
+            </div> 
+ 
+            <div class="flex items-center gap-3 border-r pr-4"> 
+                <label for="font-size" class="text-sm font-medium 
+text-gray-600">Font Size:</label> 
+                <input type="number" id="font-size" min="8" max="200" 
+value="16" class="w-20 border-gray-300 rounded-md shadow-sm"> 
+            </div> 
+ 
+            <div class="flex items-center gap-2"> 
+                <span class="text-sm font-medium 
+text-gray-600">Export:</span> 
+                <button id="export-pdf" class="px-3 py-1.5 text-sm 
+font-semibold text-white bg-red-600 rounded-md 
+hover:bg-red-700">PDF</button> 
+                <button id="export-docx" class="px-3 py-1.5 text-sm 
+font-semibold text-white bg-blue-600 rounded-md 
+hover:bg-blue-700">DOCX</button> 
+                <button id="export-xlsx" class="px-3 py-1.5 text-sm 
+font-semibold text-white bg-green-600 rounded-md 
+hover:bg-green-700">XLSX</button> 
+                <button id="export-csv" class="px-3 py-1.5 text-sm 
+font-semibold text-white bg-gray-600 rounded-md 
+hover:bg-gray-700">CSV</button> 
+            </div> 
+        </div> 
+    </div> 
+ 
+    <p class="text-center text-gray-500 my-4 text-sm">Swipe to draw a 
+line. Double-click to add text.</p> 
+ 
+    <div id="editor-container" class="editor-container"> 
+        <canvas id="editor-canvas"></canvas> 
+    </div> 
+ 
+    <script> 
+        document.addEventListener('DOMContentLoaded', () => { 
+            const editorContainer = 
+document.getElementById('editor-container'); 
+            const canvas = document.getElementById('editor-canvas'); 
+            const ctx = canvas.getContext('2d'); 
+ 
+            // --- Controls --- 
+            const undoBtn = document.getElementById('undo-btn'); 
+            const redoBtn = document.getElementById('redo-btn'); 
+            const lineWeightInput = 
+document.getElementById('line-weight'); 
+            const lineColorInput = 
+document.getElementById('line-color'); 
+            const fontSizeInput = 
+document.getElementById('font-size'); 
+ 
+            // --- State --- 
+            let history = []; 
+            let redoStack = []; 
+            let elements = []; // { type: 'line'/'text', ... } 
+            let isDrawing = false; 
+            let isLocked = false; 
+            let lockDirection = null; // 'horizontal' or 'vertical' 
+            let startX, startY; 
+            let currentLine = null; 
+ 
+            // --- Canvas Setup --- 
+            function resizeCanvas() { 
+                const rect = editorContainer.getBoundingClientRect(); 
+                canvas.width = rect.width; 
+                canvas.height = rect.height; 
+                redrawAll(); 
+            } 
+ 
+            // --- Drawing Logic --- 
+            function redrawAll() { 
+                ctx.clearRect(0, 0, canvas.width, canvas.height); 
+                elements.forEach(el => { 
+                    if (el.type === 'line') { 
+                        drawLine(el); 
+                    } 
+                }); 
+                if (isDrawing && currentLine) { 
+                    drawLine(currentLine); 
+                } 
+            } 
+ 
+            function drawLine(line) { 
+                ctx.beginPath(); 
+                ctx.moveTo(line.x1, line.y1); 
+                ctx.lineTo(line.x2, line.y2); 
+                ctx.strokeStyle = line.color; 
+                ctx.lineWidth = line.weight; 
+                ctx.lineCap = 'round'; 
+                ctx.stroke(); 
+            } 
+             
+            // --- History Management --- 
+            function saveState() { 
+                history.push(JSON.parse(JSON.stringify(elements))); 
+                redoStack = []; // Clear redo stack on new action 
+                updateHistoryButtons(); 
+            } 
+ 
+            function undo() { 
+                if (history.length > 1) { 
+                    redoStack.push(history.pop()); 
+                    elements = 
+JSON.parse(JSON.stringify(history[history.length - 1])); 
+                    redrawAll(); 
+                    recreateDOMTextElements(); 
+                    updateHistoryButtons(); 
+                } 
+            } 
+ 
+            function redo() { 
+                if (redoStack.length > 0) { 
+                    const nextState = redoStack.pop(); 
+                    history.push(nextState); 
+                    elements = JSON.parse(JSON.stringify(nextState)); 
+                    redrawAll(); 
+                    recreateDOMTextElements(); 
+                    updateHistoryButtons(); 
+                } 
+            } 
+             
+            function updateHistoryButtons() { 
+                undoBtn.disabled = history.length <= 1; 
+                redoBtn.disabled = redoStack.length === 0; 
+                undoBtn.classList.toggle('opacity-50', 
+undoBtn.disabled); 
+                redoBtn.classList.toggle('opacity-50', 
+redoBtn.disabled); 
+            } 
+ 
+            // --- Event Handlers --- 
+            function getCoords(e) { 
+                const rect = canvas.getBoundingClientRect(); 
+                const clientX = e.touches ? e.touches[0].clientX : 
+e.clientX; 
+                const clientY = e.touches ? e.touches[0].clientY : 
+e.clientY; 
+                return { 
+                    x: clientX - rect.left, 
+                    y: clientY - rect.top 
+                }; 
+            } 
+ 
+            function handleStart(e) { 
+                // Ignore if clicking on a text element 
+                if (e.target.classList.contains('text-element')) 
+return; 
+                 
+                e.preventDefault(); 
+                const { x, y } = getCoords(e); 
+                isDrawing = true; 
+                isLocked = false; 
+                lockDirection = null; 
+                startX = x; 
+                startY = y; 
+                currentLine = { 
+                    type: 'line', 
+                    x1: startX, y1: startY, 
+                    x2: startX, y2: startY, 
+                    color: lineColorInput.value, 
+                    weight: lineWeightInput.value 
+                }; 
+            } 
+ 
+            function handleMove(e) { 
+                if (!isDrawing) return; 
+                e.preventDefault(); 
+                 
+                const { x, y } = getCoords(e); 
+                const dx = x - startX; 
+                const dy = y - startY; 
+ 
+                // Lock direction after a certain threshold 
+                if (!isLocked && (Math.abs(dx) > 10 || Math.abs(dy) > 
+10)) { 
+                    lockDirection = Math.abs(dx) > Math.abs(dy) ? 
+'horizontal' : 'vertical'; 
+                    isLocked = true; 
+                } 
+ 
+                if (isLocked) { 
+                    if (lockDirection === 'horizontal') { 
+                        currentLine.x2 = x; 
+                        currentLine.y2 = startY; 
+                    } else { // vertical 
+                        currentLine.x2 = startX; 
+                        currentLine.y2 = y; 
+                    } 
+                } else { 
+                    // Free-draw until lock 
+                    currentLine.x2 = x; 
+                    currentLine.y2 = y; 
+                } 
+                 
+                redrawAll(); 
+            } 
+ 
+            function handleEnd(e) { 
+                if (!isDrawing) return; 
+                e.preventDefault(); 
+                 
+                // Only add line if it has some length 
+                if (currentLine.x1 !== currentLine.x2 || 
+currentLine.y1 !== currentLine.y2) { 
+                    elements.push(currentLine); 
+                    saveState(); 
+                } 
+ 
+                isDrawing = false; 
+                currentLine = null; 
+                redrawAll(); 
+            } 
+             
+            editorContainer.addEventListener('mousedown', 
+handleStart); 
+            editorContainer.addEventListener('mousemove', handleMove); 
+            window.addEventListener('mouseup', handleEnd); 
+             
+            editorContainer.addEventListener('touchstart', 
+handleStart); 
+            editorContainer.addEventListener('touchmove', handleMove); 
+            window.addEventListener('touchend', handleEnd); 
+ 
+            // --- Text Element Logic --- 
+            editorContainer.addEventListener('dblclick', (e) => { 
+                if (e.target !== editorContainer && e.target !== 
+canvas) return; 
+                const { x, y } = getCoords(e); 
+                createTextElement(x, y); 
+                saveState(); 
+            }); 
+ 
+            function createTextElement(x, y, content = 'Type here...', 
+id = `text-${Date.now()}`) { 
+                const textEl = document.createElement('div'); 
+                textEl.id = id; 
+                textEl.contentEditable = true; 
+                textEl.className = 'text-element'; 
+                textEl.style.left = `${x}px`; 
+                textEl.style.top = `${y}px`; 
+                textEl.style.fontSize = `${fontSizeInput.value}px`; 
+                textEl.innerText = content; 
+                 
+                editorContainer.appendChild(textEl); 
+ 
+                // Add to elements array if it's new 
+                if (!elements.find(el => el.id === id)) { 
+                    elements.push({ 
+                        type: 'text', 
+                        id: textEl.id, 
+                        x: x, 
+                        y: y, 
+                        content: textEl.innerText, 
+                        fontSize: fontSizeInput.value 
+                    }); 
+                } 
+                 
+                textEl.addEventListener('input', () => { 
+                    const elData = elements.find(el => el.id === 
+textEl.id); 
+                    elData.content = textEl.innerText; 
+                    // Debounce saveState for typing 
+                }); 
+ 
+                textEl.addEventListener('blur', () => saveState()); 
+ 
+                // Drag logic 
+                let offsetX, offsetY; 
+                const dragStart = (e) => { 
+                    const rect = textEl.getBoundingClientRect(); 
+                    const containerRect = 
+editorContainer.getBoundingClientRect(); 
+                    offsetX = (e.touches ? e.touches[0].clientX : 
+e.clientX) - rect.left; 
+                    offsetY = (e.touches ? e.touches[0].clientY : 
+e.clientY) - rect.top; 
+                    document.addEventListener('mousemove', dragMove); 
+                    document.addEventListener('mouseup', dragEnd); 
+                    document.addEventListener('touchmove', dragMove, { 
+passive: false }); 
+                    document.addEventListener('touchend', dragEnd); 
+                }; 
+ 
+                const dragMove = (e) => { 
+                    e.preventDefault(); 
+                    const clientX = e.touches ? e.touches[0].clientX : 
+e.clientX; 
+                    const clientY = e.touches ? e.touches[0].clientY : 
+e.clientY; 
+                    const containerRect = 
+editorContainer.getBoundingClientRect(); 
+                    let newX = clientX - containerRect.left - offsetX; 
+                    let newY = clientY - containerRect.top - offsetY; 
+ 
+                    // Constrain within the container 
+                    newX = Math.max(0, Math.min(newX, 
+containerRect.width - textEl.offsetWidth)); 
+                    newY = Math.max(0, Math.min(newY, 
+containerRect.height - textEl.offsetHeight)); 
+ 
+                    textEl.style.left = `${newX}px`; 
+                    textEl.style.top = `${newY}px`; 
+                }; 
+ 
+                const dragEnd = () => { 
+                    const elData = elements.find(el => el.id === 
+textEl.id); 
+                    elData.x = textEl.offsetLeft; 
+                    elData.y = textEl.offsetTop; 
+                    saveState(); 
+                    document.removeEventListener('mousemove', 
+dragMove); 
+                    document.removeEventListener('mouseup', dragEnd); 
+                    document.removeEventListener('touchmove', 
+dragMove); 
+                    document.removeEventListener('touchend', dragEnd); 
+                }; 
+ 
+                textEl.addEventListener('mousedown', dragStart); 
+                textEl.addEventListener('touchstart', dragStart); 
+            } 
+             
+            function recreateDOMTextElements() { 
+                // Remove old text elements 
+                document.querySelectorAll('.text-element').forEach(el 
+=> el.remove()); 
+                // Create new ones from state 
+                elements.filter(el => el.type === 
+'text').forEach(textData => { 
+                    createTextElement(textData.x, textData.y, 
+textData.content, textData.id); 
+                }); 
+            } 
+ 
+            fontSizeInput.addEventListener('change', (e) => { 
+                const selectedText = 
+document.querySelector('.text-element.selected, .text-element:focus'); 
+                if (selectedText) { 
+                    selectedText.style.fontSize = 
+`${e.target.value}px`; 
+                    const elData = elements.find(el => el.id === 
+selectedText.id); 
+                    elData.fontSize = e.target.value; 
+                    saveState(); 
+                } 
+            }); 
+ 
+            // --- Export Logic --- 
+            const { jsPDF } = window.jspdf; 
+             
+            async function exportToPdf() { 
+                const pdf = new jsPDF({ 
+                    orientation: 'portrait', 
+                    unit: 'mm', 
+                    format: 'a4' 
+                }); 
+ 
+                const canvasRect = canvas.getBoundingClientRect(); 
+                const wRatio = 210 / canvasRect.width; 
+                const hRatio = 297 / canvasRect.height; 
+ 
+                elements.forEach(el => { 
+                    if (el.type === 'line') { 
+                        pdf.setLineWidth(el.weight * wRatio); 
+                        pdf.setDrawColor(el.color); 
+                        pdf.line(el.x1 * wRatio, el.y1 * hRatio, el.x2 
+* wRatio, el.y2 * hRatio); 
+                    } else if (el.type === 'text') { 
+                        pdf.setFontSize(el.fontSize * wRatio * 2.8); 
+// Approximate conversion 
+                        pdf.text(el.content, el.x * wRatio, (el.y + 
+el.fontSize) * hRatio); 
+                    } 
+                }); 
+ 
+                pdf.save('digital-paper.pdf'); 
+            } 
+ 
+            async function exportToDocx() { 
+                alert("DOCX export is a complex feature and not fully 
+implemented in this demo."); 
+            } 
+ 
+            function exportToXlsx() { 
+                const wb = XLSX.utils.book_new(); 
+                const ws_data = [[]]; // Start with an empty sheet 
+ 
+                // Add text elements to the sheet 
+                elements.filter(el => el.type === 'text').forEach(text 
+=> { 
+                    // Approximate row/col placement 
+                    const row = Math.floor(text.y / 20); 
+                    const col = Math.floor(text.x / 80); 
+                    while (ws_data.length <= row) ws_data.push([]); 
+                    ws_data[row][col] = text.content; 
+                }); 
+ 
+                const ws = XLSX.utils.aoa_to_sheet(ws_data); 
+                 
+                // Add lines as cell borders (approximation) 
+                ws['!merges'] = []; 
+                const borders = {}; 
+                elements.filter(el => el.type === 'line').forEach(line 
+=> { 
+                    // This is a simplified approximation and may not 
+be accurate 
+                    const startRow = Math.floor(line.y1 / 20); 
+                    const startCol = Math.floor(line.x1 / 80); 
+                    const endRow = Math.floor(line.y2 / 20); 
+                    const endCol = Math.floor(line.x2 / 80); 
+                     
+                    const borderStyle = { style: "thin", color: { rgb: 
+line.color.replace('#', '') } }; 
+ 
+                    if (line.x1 === line.x2) { // Vertical 
+                        for (let r = startRow; r <= endRow; r++) { 
+                            const cellRef = XLSX.utils.encode_cell({c: 
+startCol, r: r}); 
+                            if (!ws[cellRef]) ws[cellRef] = {v: ''}; 
+                            if (!ws[cellRef].s) ws[cellRef].s = {}; 
+                            ws[cellRef].s.border = { 
+...ws[cellRef].s.border, left: borderStyle }; 
+                        } 
+                    } else { // Horizontal 
+                         for (let c = startCol; c <= endCol; c++) { 
+                            const cellRef = XLSX.utils.encode_cell({c: 
+c, r: startRow}); 
+                            if (!ws[cellRef]) ws[cellRef] = {v: ''}; 
+                            if (!ws[cellRef].s) ws[cellRef].s = {}; 
+                            ws[cellRef].s.border = { 
+...ws[cellRef].s.border, top: borderStyle }; 
+                        } 
+                    } 
+                }); 
+ 
+                XLSX.utils.book_append_sheet(wb, ws, 'Sheet1'); 
+                XLSX.writeFile(wb, 'digital-paper.xlsx'); 
+            } 
+ 
+            function exportToCsv() { 
+                let csvContent = "data:text/csv;charset=utf-8,"; 
+                const rows = []; 
+                elements.filter(el => el.type === 'text').forEach(text 
+=> { 
+                    const row = Math.floor(text.y / 20); 
+                    const col = Math.floor(text.x / 80); 
+                    while (rows.length <= row) rows.push([]); 
+                    rows[row][col] = `"${text.content.replace(/"/g, 
+'""')}"`; 
+                }); 
+ 
+                rows.forEach(rowArray => { 
+                    let row = rowArray.join(","); 
+                    csvContent += row + "\r\n"; 
+                }); 
+ 
+                var encodedUri = encodeURI(csvContent); 
+                var link = document.createElement("a"); 
+                link.setAttribute("href", encodedUri); 
+                link.setAttribute("download", "digital-paper.csv"); 
+                document.body.appendChild(link); 
+                link.click(); 
+                document.body.removeChild(link); 
+            } 
+ 
+            
+document.getElementById('export-pdf').addEventListener('click', 
+exportToPdf); 
+            
+document.getElementById('export-docx').addEventListener('click', 
+exportToDocx); 
+            
+document.getElementById('export-xlsx').addEventListener('click', 
+exportToXlsx); 
+            
+document.getElementById('export-csv').addEventListener('click', 
+exportToCsv); 
+             
+            // --- Init --- 
+            window.addEventListener('resize', resizeCanvas); 
+            undoBtn.addEventListener('click', undo); 
+            redoBtn.addEventListener('click', redo); 
+             
+            resizeCanvas(); 
+            saveState(); // Initial empty state 
+        }); 
+    </script> 
+ 
+</body> 
+</html>
